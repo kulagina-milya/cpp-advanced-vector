@@ -317,9 +317,9 @@ public:
                 throw;
             }
         }
-    ++size_;
-    return (begin() + distance);
-}
+    	++size_;
+    	return (begin() + distance);
+    }
 
     iterator Erase(const_iterator pos) /*noexcept(std::is_nothrow_move_assignable_v<T>)*/  {
         assert(pos >= begin() && pos <= end());           
