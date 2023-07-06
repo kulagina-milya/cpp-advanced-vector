@@ -117,7 +117,7 @@ public:
 
     Vector& operator=(const Vector& rhs) {
         if (this != &rhs) {
-            if (rhs.size_ <= data_.Capacity()) {
+            if (rhs.size_ <= Capacity()) {
                 if (size_ <= rhs.size_) {
                     std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + size_,
                         data_.GetAddress());
