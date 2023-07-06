@@ -31,6 +31,7 @@ public:
 
     RawMemory& operator=(RawMemory&& rhs) noexcept {
         if (this != &rhs) {
+            Deallocate(buffer_);
             buffer_ = std::exchange(rhs.buffer_, nullptr);
             capacity_ = std::exchange(rhs.capacity_, 0);
         }
@@ -116,7 +117,7 @@ public:
 
     Vector& operator=(const Vector& rhs) {
         if (this != &rhs) {
-            if (rhs.size_ <= Capacity()) {
+            if (rhs.size_ <= data_.Capacity()) {
                 if (size_ <= rhs.size_) {
                     std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + size_,
                         data_.GetAddress());
@@ -217,14 +218,15 @@ public:
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
             new (new_data.GetAddress() + size_) T(std::forward<Args>(args)...);
             try {
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
-            else {
-                std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
+                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+                    std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+                }
+                else {
+                    std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+                }
             } catch (...) {
-                new_data.~RawMemory();
+                std::destroy_at(new_data + size_);
+                throw;
             }
             std::destroy_n(data_.GetAddress(), size_);
             data_.Swap(new_data);
@@ -271,18 +273,19 @@ public:
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
             new (new_data.GetAddress() + distance) T(std::forward<Args>(args)...);
             try {
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(data_.GetAddress(), distance, new_data.GetAddress());
-                std::uninitialized_move_n(data_.GetAddress() + distance, size_ - distance,
+                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+                    std::uninitialized_move_n(data_.GetAddress(), distance, new_data.GetAddress());
+                    std::uninitialized_move_n(data_.GetAddress() + distance, size_ - distance,
                     new_data.GetAddress() + distance + 1);
-            }
-            else {
-                std::uninitialized_copy_n(data_.GetAddress(), distance, new_data.GetAddress());
-                std::uninitialized_copy_n(data_.GetAddress() + distance, size_ - distance,
+                }
+                else {
+                    std::uninitialized_copy_n(data_.GetAddress(), distance, new_data.GetAddress());
+                    std::uninitialized_copy_n(data_.GetAddress() + distance, size_ - distance,
                     new_data.GetAddress() + distance + 1);
-            }
+                }
             } catch (...) {
-                new_data.~RawMemory();
+                std::destroy_n(new_data.GetAddress(), distance + 1);
+                throw;
             }
             std::destroy_n(data_.GetAddress(), size_);
             data_.Swap(new_data);
@@ -291,8 +294,13 @@ public:
                 if (pos != end()) {
                     T new_value(std::forward<Args>(args)...);
                     new (end()) T(std::forward<T>(data_[size_ - 1]));
-
-                    std::move_backward(begin() + distance, end() - 1, end());
+                    try {
+                        std::move_backward(begin() + distance, end() - 1, end());
+                    } catch (...) {
+                        std::destroy_at(end());
+                        throw;
+                    }
+                    
                     *(begin() + distance) = std::forward<T>(new_value);
                 }
                 else {
@@ -306,9 +314,8 @@ public:
     }
 
     iterator Erase(const_iterator pos) noexcept(std::is_nothrow_move_assignable_v<T>) {
-        assert(pos >= begin());
+        assert(pos >= cbegin() && (pos < cbegin() + Size()));
         size_t distance = std::distance(cbegin(), pos);
-        assert (distance < Size());
         std::move(begin() + distance + 1, end(), begin() + distance);
         std::destroy_at(end() - 1);
         --size_;
